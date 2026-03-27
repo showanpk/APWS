@@ -1,0 +1,310 @@
+@page "/monthly-invoice"
+@rendermode InteractiveServer
+@using APWS.Models
+@using APWS.Services
+@using System.Globalization
+@inject MonthlyInvoiceService InvoiceService
+
+<PageTitle>Monthly Invoice</PageTitle>
+
+<h1>Monthly Invoice Generation</h1>
+
+<div class="mb-2">
+    @if (isInteractive)
+    {
+        <span class="badge bg-success">Connected</span>
+    }
+    else
+    {
+        <span class="badge bg-warning text-dark">Connecting...</span>
+    }
+</div>
+
+<div class="invoice-page card shadow-sm">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-12 col-md-4">
+                <label class="form-label">Prepared Date</label>
+                <InputDate class="form-control" @bind-Value="preparedDate" />
+            </div>
+            <div class="col-12 col-md-4 d-flex align-items-end">
+                <div class="form-check me-4">
+                    <input id="allCustomers" class="form-check-input" type="checkbox" @bind="allCustomers" />
+                    <label for="allCustomers" class="form-check-label">All Customers</label>
+                </div>
+                <div class="form-check">
+                    <input id="coolerOnly" class="form-check-input" type="checkbox" @bind="coolerOnly" disabled="@(!allCustomers)" />
+                    <label for="coolerOnly" class="form-check-label">Cooler Only</label>
+                </div>
+            </div>
+        </div>
+
+        @if (allCustomers)
+        {
+            <div class="row g-3 mt-1">
+                <div class="col-12 col-md-3">
+                    <label class="form-label">Year</label>
+                    <InputNumber class="form-control" @bind-Value="yearAll" />
+                </div>
+                <div class="col-12 col-md-4">
+                    <label class="form-label">Month</label>
+                    <select class="form-select" @bind="monthAll">
+                        @foreach (var month in months)
+                        {
+                            <option value="@month.Value">@month.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-12 col-md-5">
+                    <label class="form-label">Executive (reference)</label>
+                    <select class="form-select" @bind="selectedExecutive">
+                        <option value="">All / Auto</option>
+                        @foreach (var executive in executives)
+                        {
+                            <option value="@executive.Value">@executive.Text</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="row g-3 mt-1">
+                <div class="col-12 col-md-3">
+                    <label class="form-label">Customer Code</label>
+                    <input class="form-control" @bind="customerCode" />
+                </div>
+                <div class="col-12 col-md-3 d-flex align-items-end">
+                    <button type="button" class="btn btn-outline-secondary w-100" @onclick="LoadBranchesAsync" disabled="@isBusy">Load Branches</button>
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label">Branch</label>
+                    <select class="form-select" @bind="branchCode">
+                        <option value="">Select branch</option>
+                        @foreach (var branch in branches)
+                        {
+                            <option value="@branch.Value">@branch.Text</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label">Year</label>
+                    <InputNumber class="form-control" @bind-Value="yearIndi" />
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label">Month</label>
+                    <select class="form-select" @bind="monthIndi">
+                        @foreach (var month in months)
+                        {
+                            <option value="@month.Value">@month.Text</option>
+                        }
+                    </select>
+                </div>
+            </div>
+        }
+
+        <div class="mt-4 d-flex gap-2">
+            <button type="button" class="btn btn-primary" @onclick="GenerateAsync" disabled="@isBusy">@(isBusy ? "Generating..." : "Generate")</button>
+            <button type="button" class="btn btn-outline-secondary" @onclick="ClearLogs" disabled="@isBusy">Clear Log</button>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(error))
+        {
+            <div class="alert alert-danger mt-3">@error</div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(summary))
+        {
+            <div class="alert alert-success mt-3">@summary</div>
+        }
+
+        <div class="mt-3">
+            <h5>Progress Log</h5>
+            <div class="log-box border rounded p-2">
+                @if (logs.Count == 0)
+                {
+                    <div class="text-muted">No logs yet.</div>
+                }
+                else
+                {
+                    @foreach (var line in logs)
+                    {
+                        <div>@line</div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool isBusy;
+    private bool isInteractive;
+    private bool allCustomers = true;
+    private bool coolerOnly;
+    private DateTime preparedDate = DateTime.Today;
+
+    private int yearAll = DateTime.Today.Year;
+    private string monthAll = DateTime.Today.Month.ToString();
+    private string selectedExecutive = string.Empty;
+
+    private string customerCode = string.Empty;
+    private string branchCode = string.Empty;
+    private int yearIndi = DateTime.Today.Year;
+    private string monthIndi = DateTime.Today.Month.ToString();
+
+    private string error = string.Empty;
+    private string summary = string.Empty;
+
+    private List<OptionItem> months = new();
+    private List<OptionItem> executives = new();
+    private List<OptionItem> branches = new();
+    private readonly List<string> logs = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            months = (await InvoiceService.GetMonthsAsync()).ToList();
+            executives = (await InvoiceService.GetExecutivesAsync()).ToList();
+
+            if (months.Count > 0 && months.All(x => x.Value != monthAll))
+            {
+                monthAll = months[0].Value;
+                monthIndi = months[0].Value;
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+    }
+
+    private async Task LoadBranchesAsync()
+    {
+        error = string.Empty;
+        summary = string.Empty;
+
+        try
+        {
+            branches = (await InvoiceService.GetBranchesAsync(customerCode)).ToList();
+            branchCode = branches.FirstOrDefault()?.Value ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+    }
+
+    private void AddLog(string text)
+    {
+        _ = InvokeAsync(() =>
+        {
+            logs.Add($"[{DateTime.Now:HH:mm:ss}] {text}");
+            StateHasChanged();
+        });
+    }
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            isInteractive = true;
+            StateHasChanged();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task GenerateAsync()
+    {
+        if (isBusy)
+        {
+            return;
+        }
+
+        error = string.Empty;
+        summary = string.Empty;
+        logs.Clear();
+
+        try
+        {
+            isBusy = true;
+            AddLog("Generate clicked.");
+
+            await InvokeAsync(StateHasChanged);
+
+            InvoiceRunResult result;
+            if (allCustomers)
+            {
+                if (!TryResolveMonth(monthAll, out var month))
+                {
+                    throw new InvalidOperationException("Please select a valid month.");
+                }
+
+                result = await InvoiceService.GenerateAllAsync(
+                    yearAll,
+                    month,
+                    preparedDate,
+                    coolerOnly,
+                    AddLog);
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(customerCode) || string.IsNullOrWhiteSpace(branchCode))
+                {
+                    throw new InvalidOperationException("Please enter customer code and branch code.");
+                }
+
+                if (!TryResolveMonth(monthIndi, out var month))
+                {
+                    throw new InvalidOperationException("Please select a valid month.");
+                }
+
+                result = await InvoiceService.GenerateSingleAsync(
+                    customerCode.Trim(),
+                    branchCode.Trim(),
+                    yearIndi,
+                    month,
+                    preparedDate,
+                    AddLog);
+            }
+
+            summary = $"Completed. Processed: {result.Processed}, Inserted: {result.Inserted}, Skipped: {result.Skipped}";
+            AddLog(summary);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            AddLog($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void ClearLogs()
+    {
+        logs.Clear();
+        summary = string.Empty;
+        error = string.Empty;
+    }
+
+    private static bool TryResolveMonth(string value, out int month)
+    {
+        if (int.TryParse(value, out month) && month is >= 1 and <= 12)
+        {
+            return true;
+        }
+
+        if (DateTime.TryParseExact(value, new[] { "MMM", "MMMM" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+        {
+            month = parsed.Month;
+            return true;
+        }
+
+        month = 0;
+        return false;
+    }
+}

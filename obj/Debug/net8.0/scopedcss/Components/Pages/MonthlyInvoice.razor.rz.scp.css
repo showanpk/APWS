@@ -1,0 +1,12 @@
+.invoice-page[b-l7wvwe1ik7] {
+  margin-top: 1rem;
+}
+
+.log-box[b-l7wvwe1ik7] {
+  min-height: 220px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: #fafafa;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.9rem;
+}
