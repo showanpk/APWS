@@ -205,7 +205,7 @@ ORDER BY BranchCode";
         var result = new InvoiceRunResult();
 
         const string sql = @"
-SELECT tbrca.CustomerCode, tbrca.BranchCode
+SELECT DISTINCT tbrca.CustomerCode, tbrca.BranchCode
 FROM tbl_Rent_Coolers_Amount tbrca
 INNER JOIN tbl_Branch tbb
     ON tbrca.BusinessUnit = tbb.BusinessUnit
@@ -229,13 +229,27 @@ WHERE tbrca.ToDate >= @todate
         cmd.Parameters.AddWithValue("@month", month);
         cmd.Parameters.AddWithValue("@todate", _preparedDate);
 
+        var seenCoolers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var custCode = reader.IsDBNull(0) ? string.Empty : reader.GetString(0);
-            var branchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+            var custCode = reader.IsDBNull(0) ? string.Empty : reader.GetString(0).Trim();
+            var branchCode = reader.IsDBNull(1) ? string.Empty : reader.GetString(1).Trim();
+
+            if (string.IsNullOrWhiteSpace(custCode) || string.IsNullOrWhiteSpace(branchCode))
+            {
+                continue;
+            }
+
+            var coolerKey = $"{custCode}|{branchCode}";
+            if (!seenCoolers.Add(coolerKey))
+            {
+                continue;
+            }
+
             result.Processed++;
 
             if (await InvoiceAlreadyExistsAsync(custCode, branchCode, month, year, cancellationToken))
