@@ -1,5 +1,6 @@
 using System.Data;
 using APWS.Models;
+using APWS.Models.MonthlyInvoice;
 using Microsoft.Data.SqlClient;
 
 namespace APWS.Services;
@@ -108,6 +109,18 @@ ORDER BY BranchCode";
         return total;
     }
 
+    public async Task<InvoiceRunResult> GenerateAllAsync(
+        GenerateAllMonthlyInvoiceModel request,
+        Action<string>? log,
+        CancellationToken cancellationToken = default)
+        => await GenerateAllAsync(
+            request.Year,
+            request.Month,
+            request.PreparedDate,
+            request.CoolerOnly,
+            log,
+            cancellationToken);
+
     public async Task<InvoiceRunResult> GenerateSingleAsync(
         string customerCode,
         string branchCode,
@@ -148,6 +161,19 @@ ORDER BY BranchCode";
 
         return result;
     }
+
+    public async Task<InvoiceRunResult> GenerateSingleAsync(
+        GenerateSingleMonthlyInvoiceModel request,
+        Action<string>? log,
+        CancellationToken cancellationToken = default)
+        => await GenerateSingleAsync(
+            request.CustomerCode,
+            request.BranchCode,
+            request.Year,
+            request.Month,
+            request.PreparedDate,
+            log,
+            cancellationToken);
 
     private static void Merge(InvoiceRunResult into, InvoiceRunResult from)
     {
