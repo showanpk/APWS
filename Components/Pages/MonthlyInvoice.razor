@@ -1,9 +1,11 @@
 @page "/monthly-invoice"
 @rendermode InteractiveServer
+@using APWS.Dtos.MonthlyInvoice
 @using APWS.Models
-@using APWS.Services
+@using System.Net.Http.Json
 @using System.Globalization
-@inject MonthlyInvoiceService InvoiceService
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
 
 <PageTitle>Monthly Invoice</PageTitle>
 
@@ -156,17 +158,27 @@
     private string error = string.Empty;
     private string summary = string.Empty;
 
-    private List<OptionItem> months = new();
-    private List<OptionItem> executives = new();
-    private List<OptionItem> branches = new();
+    private List<OptionItemDto> months = new();
+    private List<OptionItemDto> executives = new();
+    private List<OptionItemDto> branches = new();
     private readonly List<string> logs = new();
+
+    private HttpClient ApiClient
+    {
+        get
+        {
+            var client = HttpClientFactory.CreateClient();
+            client.BaseAddress = new Uri(Navigation.BaseUri);
+            return client;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
-            months = (await InvoiceService.GetMonthsAsync()).ToList();
-            executives = (await InvoiceService.GetExecutivesAsync()).ToList();
+            months = await GetAsync<List<OptionItemDto>>("api/monthly-invoice/months") ?? new List<OptionItemDto>();
+            executives = await GetAsync<List<OptionItemDto>>("api/monthly-invoice/executives") ?? new List<OptionItemDto>();
 
             if (months.Count > 0 && months.All(x => x.Value != monthAll))
             {
@@ -187,7 +199,8 @@
 
         try
         {
-            branches = (await InvoiceService.GetBranchesAsync(customerCode)).ToList();
+            branches = await GetAsync<List<OptionItemDto>>($"api/monthly-invoice/branches/{Uri.EscapeDataString(customerCode)}")
+                ?? new List<OptionItemDto>();
             branchCode = branches.FirstOrDefault()?.Value ?? string.Empty;
         }
         catch (Exception ex)
@@ -242,12 +255,27 @@
                     throw new InvalidOperationException("Please select a valid month.");
                 }
 
-                result = await InvoiceService.GenerateAllAsync(
-                    yearAll,
-                    month,
-                    preparedDate,
-                    coolerOnly,
-                    AddLog);
+                var response = await PostAsync<GenerateAllMonthlyInvoiceRequestDto, InvoiceGenerationResponseDto>(
+                    "api/monthly-invoice/generate/all",
+                    new GenerateAllMonthlyInvoiceRequestDto
+                    {
+                        Year = yearAll,
+                        Month = month,
+                        PreparedDate = preparedDate,
+                        CoolerOnly = coolerOnly
+                    });
+
+                foreach (var line in response.Logs)
+                {
+                    AddLog(line);
+                }
+
+                result = new InvoiceRunResult
+                {
+                    Processed = response.Result.Processed,
+                    Inserted = response.Result.Inserted,
+                    Skipped = response.Result.Skipped
+                };
             }
             else
             {
@@ -261,13 +289,28 @@
                     throw new InvalidOperationException("Please select a valid month.");
                 }
 
-                result = await InvoiceService.GenerateSingleAsync(
-                    customerCode.Trim(),
-                    branchCode.Trim(),
-                    yearIndi,
-                    month,
-                    preparedDate,
-                    AddLog);
+                var response = await PostAsync<GenerateSingleMonthlyInvoiceRequestDto, InvoiceGenerationResponseDto>(
+                    "api/monthly-invoice/generate/single",
+                    new GenerateSingleMonthlyInvoiceRequestDto
+                    {
+                        CustomerCode = customerCode.Trim(),
+                        BranchCode = branchCode.Trim(),
+                        Year = yearIndi,
+                        Month = month,
+                        PreparedDate = preparedDate
+                    });
+
+                foreach (var line in response.Logs)
+                {
+                    AddLog(line);
+                }
+
+                result = new InvoiceRunResult
+                {
+                    Processed = response.Result.Processed,
+                    Inserted = response.Result.Inserted,
+                    Skipped = response.Result.Skipped
+                };
             }
 
             summary = $"Completed. Processed: {result.Processed}, Inserted: {result.Inserted}, Skipped: {result.Skipped}";
@@ -306,5 +349,35 @@
 
         month = 0;
         return false;
+    }
+
+    private async Task<T?> GetAsync<T>(string url)
+    {
+        var response = await ApiClient.GetAsync(url);
+        if (!response.IsSuccessStatusCode)
+        {
+            var content = await response.Content.ReadAsStringAsync();
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(content) ? $"Request failed: {response.StatusCode}" : content);
+        }
+
+        return await response.Content.ReadFromJsonAsync<T>();
+    }
+
+    private async Task<TResponse> PostAsync<TRequest, TResponse>(string url, TRequest payload)
+    {
+        var response = await ApiClient.PostAsJsonAsync(url, payload);
+        if (!response.IsSuccessStatusCode)
+        {
+            var content = await response.Content.ReadAsStringAsync();
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(content) ? $"Request failed: {response.StatusCode}" : content);
+        }
+
+        var body = await response.Content.ReadFromJsonAsync<TResponse>();
+        if (body is null)
+        {
+            throw new InvalidOperationException("Server returned an empty response.");
+        }
+
+        return body;
     }
 }

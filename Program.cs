@@ -7,6 +7,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddControllers();
+builder.Services.AddHttpClient();
 builder.Services.AddScoped<MonthlyInvoiceService>();
 
 var app = builder.Build();
